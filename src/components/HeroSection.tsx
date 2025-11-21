@@ -15,7 +15,12 @@ export default function HeroSection() {
         <p className="text-xl md:text-lg leading-relaxed mb-12 text-white/70 max-w-[600px]">
           Choisis ta plateforme, décris l'ambiance, laisse l'IA faire le reste.
         </p>
-        <button className="bg-white text-[#121212] border-none rounded-[100px] px-12 py-4 text-lg font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_12px_rgba(255,255,255,0.2)] active:translate-y-0">
+        <button 
+          onClick={() => {
+            document.getElementById('app-section')?.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className="bg-white text-[#121212] border-none rounded-[100px] px-12 py-4 text-lg font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_12px_rgba(255,255,255,0.2)] active:translate-y-0"
+        >
           Commencer
         </button>
       </div>
