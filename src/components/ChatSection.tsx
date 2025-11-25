@@ -21,6 +21,7 @@ export default function ChatSection({ spotifyUser }: ChatSectionProps) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isSpotifyConnected = !!spotifyUser;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -128,7 +129,7 @@ export default function ChatSection({ spotifyUser }: ChatSectionProps) {
     <section id="chat-section" className="flex justify-center items-center min-h-screen w-full px-8 py-16">
       <div className="flex flex-col items-center w-full max-w-4xl">
         {spotifyUser && (
-          <p className="text-white/60 text-sm mb-2">
+          <p className="text-sm mb-2" style={{ color: '#1DB954' }}>
             Bonjour {spotifyUser.displayName}
           </p>
         )}
@@ -152,8 +153,8 @@ export default function ChatSection({ spotifyUser }: ChatSectionProps) {
               >
                 <div
                   className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === 'user'
-                      ? 'bg-white text-[#121212]'
-                      : 'bg-white/10 text-white'
+                    ? 'bg-white text-[#121212]'
+                    : 'bg-white/10 text-white'
                     }`}
                 >
                   <div className="text-sm whitespace-pre-wrap break-words">
@@ -191,7 +192,8 @@ export default function ChatSection({ spotifyUser }: ChatSectionProps) {
               <button
                 type="submit"
                 disabled={isLoading || !input.trim()}
-                className="bg-white text-[#121212] border-none rounded-xl px-6 py-3 font-semibold cursor-pointer transition-all duration-200 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-[#121212] border-none rounded-xl px-6 py-3 font-semibold cursor-pointer transition-all duration-200 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ backgroundColor: isSpotifyConnected ? '#1DB954' : '#FFF' }}
               >
                 Envoyer
               </button>

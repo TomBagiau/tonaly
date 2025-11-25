@@ -36,10 +36,19 @@ function App() {
     }
   }, []);
 
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/spotify/logout');
+      setSpotifyUser(null);
+    } catch (error) {
+      console.error('Erreur lors de la déconnexion:', error);
+    }
+  };
+
   return (
     <div className="w-full min-h-screen">
       <HeroSection />
-      <AppSection spotifyUser={spotifyUser} />
+      <AppSection spotifyUser={spotifyUser} onLogout={handleLogout} />
       <ChatSection spotifyUser={spotifyUser} />
     </div>
   )

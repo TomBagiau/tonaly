@@ -9,9 +9,10 @@ interface SpotifyUser {
 
 interface AppSectionProps {
   spotifyUser: SpotifyUser | null;
+  onLogout: () => void;
 }
 
-export default function AppSection({ spotifyUser }: AppSectionProps) {
+export default function AppSection({ spotifyUser, onLogout }: AppSectionProps) {
   const handleSpotifyLogin = async () => {
     try {
       const response = await fetch('/api/spotify/login');
@@ -49,12 +50,19 @@ export default function AppSection({ spotifyUser }: AppSectionProps) {
           </a>
         </div>
         {spotifyUser && (
-          <p className="text-green-400 text-sm mt-2">
-            ✓ Connecté en tant que {spotifyUser.displayName}
-          </p>
+          <div className="flex flex-col items-center gap-3">
+            <p className="text-sm" style={{ color: '#1DB954' }}>
+              ✓ Connecté en tant que {spotifyUser.displayName}
+            </p>
+            <button
+              onClick={onLogout}
+              className="text-white/60 hover:text-white text-sm underline bg-transparent border-none cursor-pointer transition-colors duration-200"
+            >
+              Se déconnecter
+            </button>
+          </div>
         )}
       </div>
     </section>
   );
 }
-

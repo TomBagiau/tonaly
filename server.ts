@@ -109,6 +109,11 @@ app.get('/callback', async (req, res) => {
   }
 });
 
+// Route pour déconnexion Spotify
+app.get('/api/spotify/logout', (req, res) => {
+  res.json({ success: true });
+});
+
 // Route API pour le chat
 app.post('/api/chat', async (req, res) => {
   try {
