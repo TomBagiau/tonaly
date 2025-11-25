@@ -15,6 +15,7 @@
     "@ai-sdk/vercel": "^1.0.28",
     "@mistralai/mistralai": "^1.10.0",
     "ai": "^5.0.100",
+    "axios": "^1.13.2",
     "dotenv": "^17.2.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

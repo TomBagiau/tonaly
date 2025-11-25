@@ -6,7 +6,17 @@ interface Message {
   content: string;
 }
 
-export default function ChatSection() {
+interface SpotifyUser {
+  displayName: string;
+  id: string;
+  accessToken: string;
+}
+
+interface ChatSectionProps {
+  spotifyUser: SpotifyUser | null;
+}
+
+export default function ChatSection({ spotifyUser }: ChatSectionProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -77,7 +87,7 @@ export default function ChatSection() {
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        
+
         // Parser le format DataStream: "0:content\n"
         const lines = chunk.split('\n');
         for (const line of lines) {
@@ -85,7 +95,7 @@ export default function ChatSection() {
             try {
               const content = JSON.parse(line.slice(2));
               accumulatedText += content;
-              
+
               // Mettre à jour le message assistant avec le texte accumulé
               setMessages((prev) =>
                 prev.map((msg) =>
@@ -117,10 +127,15 @@ export default function ChatSection() {
   return (
     <section id="chat-section" className="flex justify-center items-center min-h-screen w-full px-8 py-16">
       <div className="flex flex-col items-center w-full max-w-4xl">
+        {spotifyUser && (
+          <p className="text-white/60 text-sm mb-2">
+            Bonjour {spotifyUser.displayName}
+          </p>
+        )}
         <h2 className="text-3xl md:text-4xl font-semibold text-white mb-8">
           décris l'ambiance
         </h2>
-        
+
         <div className="w-full bg-[#1a1a1a] rounded-2xl shadow-xl border border-white/10 overflow-hidden flex flex-col h-[600px]">
           {/* Zone des messages */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -129,18 +144,17 @@ export default function ChatSection() {
                 <p className="text-lg">Décris l'ambiance de la playlist que tu souhaites</p>
               </div>
             )}
-            
+
             {messages.map((message) => (
               <div
                 key={message.id}
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                    message.role === 'user'
+                  className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === 'user'
                       ? 'bg-white text-[#121212]'
                       : 'bg-white/10 text-white'
-                  }`}
+                    }`}
                 >
                   <div className="text-sm whitespace-pre-wrap break-words">
                     {message.content || (message.role === 'assistant' && isLoading ? '...' : '')}
@@ -148,7 +162,7 @@ export default function ChatSection() {
                 </div>
               </div>
             ))}
-            
+
             {isLoading && messages[messages.length - 1]?.role === 'assistant' && !messages[messages.length - 1]?.content && (
               <div className="flex justify-start">
                 <div className="bg-white/10 text-white rounded-2xl px-4 py-3">
@@ -160,7 +174,7 @@ export default function ChatSection() {
                 </div>
               </div>
             )}
-            
+
             <div ref={messagesEndRef} />
           </div>
 

@@ -39,6 +39,76 @@ Assistant: Je suis désolé, je suis spécialisé uniquement dans la création d
 const app = express();
 app.use(express.json());
 
+// Configuration Spotify OAuth
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const REDIRECT_URI = 'http://127.0.0.1:8000/callback';
+const SCOPES = 'user-read-private user-read-email';
+
+// Route pour initier l'authentification Spotify
+app.get('/api/spotify/login', (req, res) => {
+  const authUrl = `https://accounts.spotify.com/authorize?` +
+    `client_id=${SPOTIFY_CLIENT_ID}` +
+    `&response_type=code` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&scope=${encodeURIComponent(SCOPES)}`;
+
+  res.json({ authUrl });
+});
+
+// Route de callback Spotify
+app.get('/callback', async (req, res) => {
+  const code = req.query.code as string;
+
+  if (!code) {
+    return res.redirect('/?error=no_code');
+  }
+
+  try {
+    // Échanger le code contre un access token
+    const tokenResponse = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic ' + Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64'),
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: REDIRECT_URI,
+      }),
+    });
+
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenResponse.ok) {
+      console.error('Erreur lors de l\'obtention du token:', tokenData);
+      return res.redirect('/?error=token_error');
+    }
+
+    // Récupérer les informations de l'utilisateur
+    const userResponse = await fetch('https://api.spotify.com/v1/me', {
+      headers: {
+        'Authorization': `Bearer ${tokenData.access_token}`,
+      },
+    });
+
+    const userData = await userResponse.json();
+
+    // Rediriger vers l'application avec les données utilisateur
+    const userDataEncoded = encodeURIComponent(JSON.stringify({
+      displayName: userData.display_name,
+      id: userData.id,
+      accessToken: tokenData.access_token,
+    }));
+
+    res.redirect(`/?spotify_user=${userDataEncoded}`);
+  } catch (error) {
+    console.error('Erreur lors de l\'authentification Spotify:', error);
+    res.redirect('/?error=auth_failed');
+  }
+});
+
 // Route API pour le chat
 app.post('/api/chat', async (req, res) => {
   try {
@@ -87,8 +157,8 @@ async function createServer() {
 
   app.use(vite.middlewares);
 
-  app.listen(5173, () => {
-    console.log('Server running on http://localhost:5173');
+  app.listen(8000, () => {
+    console.log('Server running on http://127.0.0.1:8000');
   });
 }
 
