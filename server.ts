@@ -2,6 +2,13 @@ import 'dotenv/config';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { Mistral } from '@mistralai/mistralai';
+import {
+  getSpotifyAuthUrl,
+  exchangeCodeForToken,
+  getSpotifyUserData,
+  createCompletePlaylist,
+  type PlaylistData,
+} from './spotifyService.js';
 
 // Vérifier que la clé API Mistral est configurée
 if (!process.env.MISTRAL_API_KEY) {
@@ -58,20 +65,9 @@ Assistant: Je suis désolé, je suis spécialisé uniquement dans la création d
 const app = express();
 app.use(express.json());
 
-// Configuration Spotify OAuth
-const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
-const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
-const REDIRECT_URI = 'http://127.0.0.1:8000/callback';
-const SCOPES = 'user-read-private user-read-email playlist-modify-public playlist-modify-private';
-
 // Route pour initier l'authentification Spotify
 app.get('/api/spotify/login', (req, res) => {
-  const authUrl = `https://accounts.spotify.com/authorize?` +
-    `client_id=${SPOTIFY_CLIENT_ID}` +
-    `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    `&scope=${encodeURIComponent(SCOPES)}`;
-
+  const authUrl = getSpotifyAuthUrl();
   res.json({ authUrl });
 });
 
@@ -85,34 +81,10 @@ app.get('/callback', async (req, res) => {
 
   try {
     // Échanger le code contre un access token
-    const tokenResponse = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': 'Basic ' + Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64'),
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: REDIRECT_URI,
-      }),
-    });
-
-    const tokenData = await tokenResponse.json();
-
-    if (!tokenResponse.ok) {
-      console.error('Erreur lors de l\'obtention du token:', tokenData);
-      return res.redirect('/?error=token_error');
-    }
+    const tokenData = await exchangeCodeForToken(code);
 
     // Récupérer les informations de l'utilisateur
-    const userResponse = await fetch('https://api.spotify.com/v1/me', {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`,
-      },
-    });
-
-    const userData = await userResponse.json();
+    const userData = await getSpotifyUserData(tokenData.access_token);
 
     // Rediriger vers l'application avec les données utilisateur
     const userDataEncoded = encodeURIComponent(JSON.stringify({
@@ -133,17 +105,6 @@ app.get('/api/spotify/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// Interface pour les données de la playlist
-interface Track {
-  title: string;
-  artist: string;
-}
-
-interface PlaylistData {
-  playlistName: string;
-  tracks: Track[];
-}
-
 // Route API pour créer une playlist sur Spotify
 app.post('/api/spotify/create-playlist', async (req, res) => {
   try {
@@ -157,135 +118,19 @@ app.post('/api/spotify/create-playlist', async (req, res) => {
       return res.status(400).json({ error: 'Données manquantes' });
     }
 
-    console.log('\n📋 Formatage des données de la playlist...');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`📝 Nom de la playlist: ${playlistData.playlistName}`);
-    console.log(`🎵 Nombre de musiques: ${playlistData.tracks.length}`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-    // Formater les données dans un tableau
-    console.log('📊 TABLEAU DES MUSIQUES:');
-    console.log('┌─────┬────────────────────────────────────────┬────────────────────────────────────────┐');
-    console.log('│ N°  │ Titre                                  │ Artiste                                │');
-    console.log('├─────┼────────────────────────────────────────┼────────────────────────────────────────┤');
-
-    playlistData.tracks.forEach((track, index) => {
-      const num = String(index + 1).padEnd(3);
-      const title = track.title.padEnd(38).substring(0, 38);
-      const artist = track.artist.padEnd(38).substring(0, 38);
-      console.log(`│ ${num} │ ${title} │ ${artist} │`);
-    });
-
-    console.log('└─────┴────────────────────────────────────────┴────────────────────────────────────────┘\n');
-
-    // Rechercher les URIs Spotify pour chaque musique
-    console.log('🔍 Recherche des musiques sur Spotify...\n');
-    const trackUris: string[] = [];
-    const notFoundTracks: Track[] = [];
-
-    for (const track of playlistData.tracks) {
-      const query = `${track.title} ${track.artist}`;
-      const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`;
-
-      try {
-        const searchResponse = await fetch(searchUrl, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-          },
-        });
-
-        const searchData = await searchResponse.json();
-
-        if (searchData.tracks?.items?.length > 0) {
-          const spotifyTrack = searchData.tracks.items[0];
-          trackUris.push(spotifyTrack.uri);
-          console.log(`✅ Trouvé: ${track.title} - ${track.artist}`);
-        } else {
-          notFoundTracks.push(track);
-          console.log(`❌ Non trouvé: ${track.title} - ${track.artist}`);
-        }
-      } catch (error) {
-        console.error(`❌ Erreur lors de la recherche de: ${track.title} - ${track.artist}`, error);
-        notFoundTracks.push(track);
-      }
-    }
-
-    console.log(`\n📊 Résultat: ${trackUris.length}/${playlistData.tracks.length} musiques trouvées\n`);
-
-    if (trackUris.length === 0) {
-      return res.status(404).json({
-        error: 'Aucune musique trouvée sur Spotify',
-        notFoundTracks
-      });
-    }
-
-    // Créer la playlist
-    console.log('🎨 Création de la playlist sur Spotify...');
-    const createPlaylistResponse = await fetch(`https://api.spotify.com/v1/users/${userId}/playlists`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: playlistData.playlistName,
-        description: `Playlist créée avec Tonaly - ${new Date().toLocaleDateString('fr-FR')}`,
-        public: false,
-      }),
-    });
-
-    const playlist = await createPlaylistResponse.json();
-
-    if (!createPlaylistResponse.ok) {
-      console.error('❌ Erreur lors de la création de la playlist:', playlist);
-      return res.status(createPlaylistResponse.status).json({
-        error: 'Erreur lors de la création de la playlist',
-        details: playlist
-      });
-    }
-
-    console.log(`✅ Playlist créée: ${playlist.name} (ID: ${playlist.id})\n`);
-
-    // Ajouter les musiques à la playlist
-    console.log('➕ Ajout des musiques à la playlist...');
-    const addTracksResponse = await fetch(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        uris: trackUris,
-      }),
-    });
-
-    if (!addTracksResponse.ok) {
-      const error = await addTracksResponse.json();
-      console.error('❌ Erreur lors de l\'ajout des musiques:', error);
-      return res.status(addTracksResponse.status).json({
-        error: 'Erreur lors de l\'ajout des musiques',
-        details: error
-      });
-    }
-
-    console.log(`✅ ${trackUris.length} musiques ajoutées à la playlist\n`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🎉 PLAYLIST CRÉÉE AVEC SUCCÈS !');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-    res.json({
-      success: true,
-      playlist: {
-        id: playlist.id,
-        name: playlist.name,
-        url: playlist.external_urls.spotify,
-        tracksAdded: trackUris.length,
-        tracksNotFound: notFoundTracks.length,
-      },
-      notFoundTracks,
-    });
+    // Utiliser le service Spotify pour créer la playlist complète
+    const result = await createCompletePlaylist(playlistData, accessToken, userId);
+    res.json(result);
   } catch (error) {
     console.error('❌ Erreur lors de la création de la playlist:', error);
+
+    // Gérer les erreurs spécifiques
+    if (error instanceof Error && error.message.includes('Aucune musique trouvée')) {
+      return res.status(404).json({
+        error: error.message,
+      });
+    }
+
     res.status(500).json({
       error: 'Erreur lors de la création de la playlist',
       details: error instanceof Error ? error.message : 'Erreur inconnue',
