@@ -19,14 +19,33 @@ const SYSTEM_INSTRUCTIONS = `Tu es un assistant spécialisé UNIQUEMENT dans la 
 
 RÈGLES STRICTES :
 - Tu DOIS TOUJOURS orienter la conversation vers la création de playlists musicales
-- Les playlists doivent contenir entre 30 et 50 chansons
 - Tu NE DOIS JAMAIS répondre à des questions qui ne concernent pas la musique
 - Si on te pose une question hors sujet, refuse poliment et redirige vers la musique
+- Les playlists doivent contenir entre 30 et 50 chansons
 
 COMPORTEMENT :
 - Salutation simple → Propose immédiatement de créer une playlist et demande l'ambiance recherchée
-- Question musicale → Réponds avec enthousiasme et pose maximum 3 questions pour affiner
+- Nom de la playlist → Avant toute question, tu dois demander le nom que la playlist devra avoir
+- Question musicale → Pose au maximum 3 questions pour affiner la playlist
 - Question hors sujet → "Je suis désolé, je suis spécialisé uniquement dans la création de playlists musicales. Puis-je vous aider à créer une playlist ? 🎵"
+
+FORMAT DE RÉPONSE FINALE :
+Une fois que tu as toutes les informations nécessaires (nom de la playlist + ambiance/préférences), tu dois générer la playlist.
+Ta réponse finale doit OBLIGATOIREMENT contenir un bloc JSON avec ce format exact :
+
+\`\`\`json
+{
+  "playlistName": "Nom de la playlist",
+  "tracks": [
+    {
+      "title": "Titre de la chanson",
+      "artist": "Nom de l'artiste"
+    }
+  ]
+}
+\`\`\`
+
+IMPORTANT : Le JSON doit être valide et contenir entre 30 et 50 chansons. Assure-toi d'inclure des chansons variées et pertinentes par rapport à l'ambiance demandée.
 
 EXEMPLES :
 
@@ -43,7 +62,7 @@ app.use(express.json());
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 const REDIRECT_URI = 'http://127.0.0.1:8000/callback';
-const SCOPES = 'user-read-private user-read-email';
+const SCOPES = 'user-read-private user-read-email playlist-modify-public playlist-modify-private';
 
 // Route pour initier l'authentification Spotify
 app.get('/api/spotify/login', (req, res) => {
@@ -113,6 +132,167 @@ app.get('/callback', async (req, res) => {
 app.get('/api/spotify/logout', (req, res) => {
   res.json({ success: true });
 });
+
+// Interface pour les données de la playlist
+interface Track {
+  title: string;
+  artist: string;
+}
+
+interface PlaylistData {
+  playlistName: string;
+  tracks: Track[];
+}
+
+// Route API pour créer une playlist sur Spotify
+app.post('/api/spotify/create-playlist', async (req, res) => {
+  try {
+    const { playlistData, accessToken, userId } = req.body as {
+      playlistData: PlaylistData;
+      accessToken: string;
+      userId: string;
+    };
+
+    if (!playlistData || !accessToken || !userId) {
+      return res.status(400).json({ error: 'Données manquantes' });
+    }
+
+    console.log('\n📋 Formatage des données de la playlist...');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`📝 Nom de la playlist: ${playlistData.playlistName}`);
+    console.log(`🎵 Nombre de musiques: ${playlistData.tracks.length}`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    // Formater les données dans un tableau
+    console.log('📊 TABLEAU DES MUSIQUES:');
+    console.log('┌─────┬────────────────────────────────────────┬────────────────────────────────────────┐');
+    console.log('│ N°  │ Titre                                  │ Artiste                                │');
+    console.log('├─────┼────────────────────────────────────────┼────────────────────────────────────────┤');
+
+    playlistData.tracks.forEach((track, index) => {
+      const num = String(index + 1).padEnd(3);
+      const title = track.title.padEnd(38).substring(0, 38);
+      const artist = track.artist.padEnd(38).substring(0, 38);
+      console.log(`│ ${num} │ ${title} │ ${artist} │`);
+    });
+
+    console.log('└─────┴────────────────────────────────────────┴────────────────────────────────────────┘\n');
+
+    // Rechercher les URIs Spotify pour chaque musique
+    console.log('🔍 Recherche des musiques sur Spotify...\n');
+    const trackUris: string[] = [];
+    const notFoundTracks: Track[] = [];
+
+    for (const track of playlistData.tracks) {
+      const query = `${track.title} ${track.artist}`;
+      const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`;
+
+      try {
+        const searchResponse = await fetch(searchUrl, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        });
+
+        const searchData = await searchResponse.json();
+
+        if (searchData.tracks?.items?.length > 0) {
+          const spotifyTrack = searchData.tracks.items[0];
+          trackUris.push(spotifyTrack.uri);
+          console.log(`✅ Trouvé: ${track.title} - ${track.artist}`);
+        } else {
+          notFoundTracks.push(track);
+          console.log(`❌ Non trouvé: ${track.title} - ${track.artist}`);
+        }
+      } catch (error) {
+        console.error(`❌ Erreur lors de la recherche de: ${track.title} - ${track.artist}`, error);
+        notFoundTracks.push(track);
+      }
+    }
+
+    console.log(`\n📊 Résultat: ${trackUris.length}/${playlistData.tracks.length} musiques trouvées\n`);
+
+    if (trackUris.length === 0) {
+      return res.status(404).json({
+        error: 'Aucune musique trouvée sur Spotify',
+        notFoundTracks
+      });
+    }
+
+    // Créer la playlist
+    console.log('🎨 Création de la playlist sur Spotify...');
+    const createPlaylistResponse = await fetch(`https://api.spotify.com/v1/users/${userId}/playlists`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: playlistData.playlistName,
+        description: `Playlist créée avec Tonaly - ${new Date().toLocaleDateString('fr-FR')}`,
+        public: false,
+      }),
+    });
+
+    const playlist = await createPlaylistResponse.json();
+
+    if (!createPlaylistResponse.ok) {
+      console.error('❌ Erreur lors de la création de la playlist:', playlist);
+      return res.status(createPlaylistResponse.status).json({
+        error: 'Erreur lors de la création de la playlist',
+        details: playlist
+      });
+    }
+
+    console.log(`✅ Playlist créée: ${playlist.name} (ID: ${playlist.id})\n`);
+
+    // Ajouter les musiques à la playlist
+    console.log('➕ Ajout des musiques à la playlist...');
+    const addTracksResponse = await fetch(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        uris: trackUris,
+      }),
+    });
+
+    if (!addTracksResponse.ok) {
+      const error = await addTracksResponse.json();
+      console.error('❌ Erreur lors de l\'ajout des musiques:', error);
+      return res.status(addTracksResponse.status).json({
+        error: 'Erreur lors de l\'ajout des musiques',
+        details: error
+      });
+    }
+
+    console.log(`✅ ${trackUris.length} musiques ajoutées à la playlist\n`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🎉 PLAYLIST CRÉÉE AVEC SUCCÈS !');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    res.json({
+      success: true,
+      playlist: {
+        id: playlist.id,
+        name: playlist.name,
+        url: playlist.external_urls.spotify,
+        tracksAdded: trackUris.length,
+        tracksNotFound: notFoundTracks.length,
+      },
+      notFoundTracks,
+    });
+  } catch (error) {
+    console.error('❌ Erreur lors de la création de la playlist:', error);
+    res.status(500).json({
+      error: 'Erreur lors de la création de la playlist',
+      details: error instanceof Error ? error.message : 'Erreur inconnue',
+    });
+  }
+});
+
 
 // Route API pour le chat
 app.post('/api/chat', async (req, res) => {

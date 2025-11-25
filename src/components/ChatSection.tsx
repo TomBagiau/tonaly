@@ -16,10 +16,22 @@ interface ChatSectionProps {
   spotifyUser: SpotifyUser | null;
 }
 
+interface Track {
+  title: string;
+  artist: string;
+}
+
+interface PlaylistData {
+  playlistName: string;
+  tracks: Track[];
+}
+
 export default function ChatSection({ spotifyUser }: ChatSectionProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [playlistData, setPlaylistData] = useState<PlaylistData | null>(null);
+  const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isSpotifyConnected = !!spotifyUser;
 
@@ -30,6 +42,71 @@ export default function ChatSection({ spotifyUser }: ChatSectionProps) {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Fonction pour extraire le JSON de la playlist depuis le message
+  const extractPlaylistData = (content: string): PlaylistData | null => {
+    try {
+      // Chercher un bloc JSON dans le contenu
+      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch && jsonMatch[1]) {
+        const data = JSON.parse(jsonMatch[1]);
+        if (data.playlistName && Array.isArray(data.tracks) && data.tracks.length > 0) {
+          return data;
+        }
+      }
+    } catch (error) {
+      console.error('Erreur lors de l\'extraction des données de la playlist:', error);
+    }
+    return null;
+  };
+
+  // Fonction pour créer la playlist sur Spotify
+  const handleCreatePlaylist = async () => {
+    if (!playlistData || !spotifyUser) {
+      return;
+    }
+
+    setIsCreatingPlaylist(true);
+
+    try {
+      const response = await fetch('/api/spotify/create-playlist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          playlistData,
+          accessToken: spotifyUser.accessToken,
+          userId: spotifyUser.id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        // Ajouter un message de succès dans le chat
+        const successMessage: Message = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `✅ Playlist "${result.playlist.name}" créée avec succès !\n\n🎵 ${result.playlist.tracksAdded} musiques ajoutées\n${result.notFoundTracks.length > 0 ? `⚠️ ${result.notFoundTracks.length} musiques non trouvées sur Spotify\n` : ''}\n🔗 [Ouvrir dans Spotify](${result.playlist.url})`,
+        };
+        setMessages((prev) => [...prev, successMessage]);
+        setPlaylistData(null); // Réinitialiser les données de la playlist
+      } else {
+        throw new Error(result.error || 'Erreur lors de la création de la playlist');
+      }
+    } catch (error) {
+      console.error('Erreur:', error);
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `❌ Erreur lors de la création de la playlist: ${error instanceof Error ? error.message : 'Erreur inconnue'}`,
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsCreatingPlaylist(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -110,6 +187,12 @@ export default function ChatSection({ spotifyUser }: ChatSectionProps) {
             }
           }
         }
+      }
+
+      // Vérifier si le message contient des données de playlist
+      const extractedData = extractPlaylistData(accumulatedText);
+      if (extractedData) {
+        setPlaylistData(extractedData);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -199,6 +282,28 @@ export default function ChatSection({ spotifyUser }: ChatSectionProps) {
               </button>
             </div>
           </form>
+
+          {/* Bouton pour créer la playlist */}
+          {playlistData && spotifyUser && (
+            <div className="border-t border-white/10 p-4 bg-white/5">
+              <div className="flex items-center justify-between">
+                <div className="text-white">
+                  <p className="font-semibold">🎵 Playlist prête !</p>
+                  <p className="text-sm text-white/60">
+                    {playlistData.playlistName} • {playlistData.tracks.length} musiques
+                  </p>
+                </div>
+                <button
+                  onClick={handleCreatePlaylist}
+                  disabled={isCreatingPlaylist}
+                  className="text-white border-none rounded-xl px-6 py-3 font-semibold cursor-pointer transition-all duration-200 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ backgroundColor: '#1DB954' }}
+                >
+                  {isCreatingPlaylist ? 'Création...' : 'Créer sur Spotify'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>
